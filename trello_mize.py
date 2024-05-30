@@ -1,11 +1,20 @@
 import json
 import os
+from os import system
 import uuid
 from enum import Enum
 from rich.console import Console
 from rich.table import Table
 from datetime import datetime, timedelta
+from loguru import logger
 import base64
+from colorama import Fore
+
+log_file_path = os.path.join(os.path.dirname(__file__), 'app.log')
+
+# تنظیمات لاگینگ
+logger.remove()  # حذف تنظیمات پیش‌فرض که لاگ‌ها را در ترمینال نمایش می‌دهند
+logger.add(log_file_path, rotation="1 MB", retention="10 days", level="INFO")
 
 
 # Initialize Rich console
@@ -27,7 +36,58 @@ class Status(Enum):
     DOING = 'DOING'
     DONE = 'DONE'
     ARCHIVED = 'ARCHIVED'
+    
+def log_action(action_message):
+    logger.info(action_message)
 
+def show_logs():
+    if not os.path.exists(log_file_path):
+        print("Log file does not exist.")
+        return None
+    with open(log_file_path, 'r') as file:
+        logs = file.read()
+    if not logs:
+        print("Log file is empty.")
+        return None
+    return logs
+
+def save_logs_to_json(json_file_path):
+    logs = show_logs()
+    if logs is None:
+        print("No logs to save.")
+        return
+    
+    log_entries = logs.splitlines()
+
+    # خواندن لاگ‌های فعلی از فایل JSON
+    if os.path.exists(json_file_path):
+        with open(json_file_path, 'r') as json_file:
+            try:
+                log_data = json.load(json_file)
+            except json.JSONDecodeError:
+                log_data = []
+    else:
+        log_data = []
+
+    # تبدیل لاگ‌های فعلی به یک مجموعه برای بررسی سریع‌تر
+    existing_logs = set(entry['log'] for entry in log_data)
+
+    # افزودن لاگ‌های جدید که قبلاً ذخیره نشده‌اند
+    new_logs = []
+    for entry in log_entries:
+        if entry not in existing_logs:
+            new_logs.append({"log": entry})
+    
+    if not new_logs:
+        print("No new logs to save.")
+        return
+
+    log_data.extend(new_logs)
+
+    with open(json_file_path, 'w') as json_file:
+        json.dump(log_data, json_file, indent=4)
+    print(f"Logs have been saved to {json_file_path}")
+    
 # Function to load data from file
 def load_data(file_path):
     if os.path.exists(file_path):
@@ -49,11 +109,94 @@ def deactivate_user():
             if user['active']:
                 user['active'] = False
                 save_data(users, 'users.json')
+                log_action(f"User {username} has been deactivated")
+                json_file_path = input("Enter the path for the JSON file: ") 
+                os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                save_logs_to_json(json_file_path)
                 console.print(f"User {username} has been deactivated successfully." , style="bold yellow")
             else:
                 console.print(f"User {username} is already deactivated.", style="bold yellow")
             return
     console.print(f"User {username} not found.", style="bold red")
+    
+def update_task_description():
+    project_title = input("Enter the project title: ")
+    task_id = input("Enter the task ID: ")
+    new_description = input("Enter the new description: ")
+
+    task_description = get_task_description_by_id(task_id)
+    projects = load_data('projects.json')  # فرض می‌کنیم که داده‌ها در فایل projects.json ذخیره شده‌اند
+    for project in projects:
+        if project['title'] == project_title:
+            for task in project['tasks']:
+                if task['id'] == task_id:
+                    task['description'] = new_description
+                    save_data(projects, 'projects.json')
+                    log_action(f"{task_description}'s description changed to {new_description}")
+                    json_file_path = input("Enter the path for the JSON file: ") 
+                    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                    save_logs_to_json(json_file_path)
+                    console.print("Task description updated successfully.", style="bold green")
+                    return
+            console.print("Task not found.", style="bold red")
+            return
+    console.print("Project not found.", style="bold red")   
+    
+def update_task_details():
+    project_title = input("Enter the project title: ")
+    task_id = input("Enter the task ID: ")
+
+    task_description = get_task_description_by_id(task_id)
+    projects = load_data('projects.json')
+    for project in projects:
+        if project['title'] == project_title:
+            for task in project['tasks']:
+                if task['id'] == task_id:
+                    print(f"details: {task['details']}")
+
+                    new_details = input("Enter the new details: ")
+
+                    if new_details:
+                        task['details'] = new_details
+
+                    save_data(projects, 'projects.json')
+                    log_action(f"{task_description}'s details changed to {new_details}")
+                    json_file_path = input("Enter the path for the JSON file: ") 
+                    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                    save_logs_to_json(json_file_path)
+                    console.print("Task details updated successfully.", style="bold green")
+                    return
+            console.print("Task not found.", style="bold red")
+            return
+    console.print("Project not found.", style="bold red")
+
+def change_task_priority(user):
+    project_title = console.input("Enter the project title: ")
+    task_id = console.input("Enter the task ID: ")
+    new_priority = console.input("Enter the new priority (CRITICAL, HIGH, MEDIUM, LOW): ").strip().upper()
+
+
+    task_description = get_task_description_by_id(task_id)
+    if new_priority not in Priority.__members__:
+        console.print("Invalid priority.", style="bold red")
+        return
+
+    projects = load_data(PROJECTS_FILE)
+    for project in projects:
+        if project['title'] == project_title and (user['username'] == project['leader'] or user['username'] in [task['assigned_to'] for task in project['tasks'] if task['id'] == task_id]):
+            for task in project['tasks']:
+                if task['id'] == task_id:
+                    task['priority'] = new_priority
+                    save_data(projects, PROJECTS_FILE)
+                    log_action(f" Task {task_description} priority has been updated to {new_priority}")
+                    json_file_path = input("Enter the path for the JSON file: ") 
+                    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                    save_logs_to_json(json_file_path)
+                    console.print("Task priority updated successfully.", style="bold green")
+                    return
+            console.print("Task not found.", style="bold red")
+            return
+    console.print("Project not found or you do not have the necessary permissions.", style="bold red")
 
 def encode_password(password):
     return base64.b64encode(password.encode('utf-8')).decode('utf-8')
@@ -82,32 +225,22 @@ def get_task_description_by_id(task_id):
     console.print("Task not found.", style="bold red")
     return None
 
-# Function to update task status
-def update_task_status(project_title, task_description, new_status):
-    projects = load_data(PROJECTS_FILE)
-    found = False
-    for project in projects:
-        if project['title'] == project_title:
-            for task in project['tasks']:
-                if task['description'] == task_description:
-                    task['status'] = new_status
-                    found = True
-                    break
-            if found:
-                save_data(projects, PROJECTS_FILE)
-                console.print("Task status updated.", style="bold green")
-                return
-    console.print("Project or task not found.", style="bold red")
-
 # Function to edit a task
 def edit_task(project_id, task_id, new_status):
+    
     projects = load_data(PROJECTS_FILE)
+    
+    task_description = get_task_description_by_id(task_id)
     for project in projects:
         if project['id'] == project_id:
             for task in project['tasks']:
                 if task['id'] == task_id:
                     task['status'] = new_status
                     save_data(projects, PROJECTS_FILE)
+                    log_action(f" Task {task_description} status has been updated to {new_status}")
+                    json_file_path = input("Enter the path for the JSON file: ") 
+                    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                    save_logs_to_json(json_file_path)
                     console.print("Task status updated successfully.", style="bold green")
                     return
     console.print("Task or project not found.", style="bold red")
@@ -117,18 +250,23 @@ def add_comment_to_task(user):
     task_id = console.input("Enter the task ID: ")
     comment_content = console.input("Enter your comment: ")
 
+    task_description = get_task_description_by_id(task_id)
     projects = load_data(PROJECTS_FILE)
     for project in projects:
         if project['title'] == project_title and user['username'] in project['members']:
             for task in project['tasks']:
-                if task['id'] == task_id and task['assigned_to'] == user['username']:
+                if task['id'] == task_id and (task['assigned_to'] == user['username'] or user['username'] == project['leader']):
                     comment = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.now().replace(microsecond=0).isoformat(),
                         'username': user['username'],
                         'content': comment_content
                     }
                     task['comments'].append(comment)
                     save_data(projects, PROJECTS_FILE)
+                    log_action(f"Comment was added in {task_description} task")
+                    json_file_path = input("Enter the path for the JSON file: ") 
+                    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                    save_logs_to_json(json_file_path)
                     console.print("Comment added successfully.", style="bold green")
                     return
             console.print("Task not found or not assigned to you.", style="bold red")
@@ -153,6 +291,11 @@ def create_account(username, password, email, is_manager):
     }
     users.append(user)
     save_data(users, DATA_FILE)
+    log_action(f"User {username} created a new account: {username}")
+    json_file_path = input("Enter the path for the JSON file: ") 
+    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+    save_logs_to_json(json_file_path)
+
     console.print("User account created successfully. Manager status: " + ("Yes" if is_manager else "No"), style="bold green")
     return True
 
@@ -164,6 +307,10 @@ def login(username, password):
     for user in users:
         if user['username'] == username and user['password'] == encoded_password:
             if user['active']:
+                log_action(f"User {username} login in her/his account")
+                json_file_path = input("Enter the path for the JSON file: ") 
+                os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                save_logs_to_json(json_file_path)
                 console.print(f"Welcome back, {username}! You are logged in as {'a manager' if user['role'] == 'manager' else 'a member'}.", style="bold blue")
                 return user
             else:
@@ -175,21 +322,10 @@ def login(username, password):
 def add_project(leader_username):
     projects = load_data(PROJECTS_FILE)
     title = console.input("Enter the title of the new project: ")
-    description = console.input("Enter the description of the new project (optional): ")
-    priority = console.input("Enter the priority of the project (CRITICAL, HIGH, MEDIUM, LOW): ").strip().upper()
-    status = console.input("Enter the status of the project (BACKLOG, TODO, DOING, DONE, ARCHIVED): ").strip().upper()
 
     if any(project['title'] == title for project in projects):
         console.print("A project with this title already exists. Please use a unique title.", style="bold red")
         return
-
-    if priority not in Priority.__members__:
-        console.print("Invalid priority. Setting to default (LOW).", style="bold red")
-        priority = Priority.LOW.value
-
-    if status not in Status.__members__:
-        console.print("Invalid status. Setting to default (BACKLOG).", style="bold red")
-        status = Status.BACKLOG.value
 
     project_id  = str(uuid.uuid4())
     start_time = datetime.now().replace(microsecond=0)
@@ -197,18 +333,19 @@ def add_project(leader_username):
     project = {
         'id': project_id,
         'title': title,
-        'description': description,
         'leader': leader_username,
         'members': [leader_username],
         'tasks': [],
-        'comments': [],
-        'priority': priority,
-        'status': status,
         'start_time': start_time.isoformat(),
         'end_time': end_time.isoformat()
     }
     projects.append(project)
     save_data(projects, PROJECTS_FILE)
+    log_action(f"User {leader_username} created a new project: {title}")
+    json_file_path = input("Enter the path for the JSON file: ") 
+    os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+    save_logs_to_json(json_file_path)
+
     console.print("Project added successfully!", style="bold green")
 
 # Function to add a member to a project
@@ -223,6 +360,10 @@ def add_member_to_project(leader_username):
                 return
             project['members'].append(username)
             save_data(projects, PROJECTS_FILE)
+            log_action(f"User {leader_username} added {username} to the project")
+            json_file_path = input("Enter the path for the JSON file: ") 
+            os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+            save_logs_to_json(json_file_path)
             console.print("Member added successfully to the project.", style="bold green")
             return
     console.print("Project not found or you are not the leader of this project.", style="bold red")
@@ -237,6 +378,10 @@ def remove_member_from_project(leader_username):
             if username in project['members']:
                 project['members'].remove(username)
                 save_data(projects, PROJECTS_FILE)
+                log_action(f"User {leader_username} removed {username} from the project")
+                json_file_path = input("Enter the path for the JSON file: ") 
+                os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                save_logs_to_json(json_file_path)
                 console.print("Member removed successfully from the project.", style="bold green")
                 return
             else:
@@ -271,7 +416,11 @@ def assign_task_to_member(leader_username):
                     'end_time': end_time.isoformat()  # Add end time
                 }
                 project['tasks'].append(task)
-                save_data(projects, PROJECTS_FILE)  # Save changes
+                save_data(projects, PROJECTS_FILE)  
+                log_action(f"User {leader_username} assigned task {task_description} to the {member_username}")
+                json_file_path = input("Enter the path for the JSON file: ") 
+                os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+                save_logs_to_json(json_file_path)
                 console.print("Task assigned successfully to the member.", style="bold green")
                 return
             else:
@@ -287,6 +436,10 @@ def delete_project(leader_username):
         if project['title'] == project_title and project['leader'] == leader_username:
             projects.remove(project)
             save_data(projects, PROJECTS_FILE)
+            log_action(f"User {leader_username} deleted the project {project_title}")
+            json_file_path = input("Enter the path for the JSON file: ") 
+            os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
+            save_logs_to_json(json_file_path)
             console.print("Project deleted successfully.", style="bold green")
             return
     console.print("Project not found or you are not the leader of this project.", style="bold red")
@@ -336,8 +489,6 @@ def display_project_details(user):
             console.print(f"Project Title: {project['title']}", style="bold magenta")
             console.print(f"Project Description: {project.get('description', 'No description provided')}", style="bold magenta")
             console.print(f"Project Leader: {project['leader']}", style="bold magenta")
-            console.print(f"Priority: {project['priority']}", style="bold magenta")
-            console.print(f"Status: {project['status']}", style="bold magenta")
             console.print(f"Start Time: {project['start_time']}", style="bold magenta")
             console.print(f"End Time: {project['end_time']}", style="bold magenta")
             console.print("Members:", style="bold magenta")
@@ -353,9 +504,6 @@ def display_project_details(user):
                 console.print("   Comments:", style="bold yellow")
                 for comment in task['comments']:
                     console.print(f"     {comment['timestamp']} - {comment['username']}: {comment['content']}", style="bold yellow")
-            console.print("Comments:", style="bold magenta")
-            for comment in project['comments']:
-                console.print(f" - {comment['timestamp']} - {comment['username']}: {comment['content']}", style="bold yellow")
             return
     console.print("Project not found or you are not a member of this project.", style="bold red")
 
@@ -397,7 +545,7 @@ def view_task_details(user, project, task_id):
             for comment in task['comments']:
                 console.print(f" - {comment['timestamp']} - {comment['username']}: {comment['content']}", style="bold yellow")
             
-            if user['username'] == project['leader']:
+            if task['assigned_to'] == user['username'] or user['username'] == project['leader']:
                 console.print("\nOptions for task:", style="bold")
                 console.print("1. Edit task description", style="bold")
                 console.print("2. Edit task details", style="bold")
@@ -407,37 +555,18 @@ def view_task_details(user, project, task_id):
                 console.print("6. Return to previous menu", style="bold")
                 choice = console.input("Choose an option: ")
                 if choice == '1':
-                    new_description = console.input("Enter new task description: ")
-                    if new_description in Status.__members__:
-                        task['status'] = Status[new_description].value
-                        project_name = console.input("Enter the project title to view tasks by status: ")
-                        project_id = get_project_id_by_name(project_name)
-                        edit_task(project_id,task_id,new_description)
-                        save_data(load_data(PROJECTS_FILE), PROJECTS_FILE)
-                    else:
-                        console.print("Invalid status.", style="bold red")
+                    update_task_description()
+                    
                 elif choice == '2':
-                    task['details'] = console.input("Enter new task details: ")
-                    save_data(load_data(PROJECTS_FILE), PROJECTS_FILE)
-                    console.print("Task details updated successfully.", style="bold green")
+                    update_task_details()
                 elif choice == '3':
-                    new_priority = console.input("Enter new task priority (CRITICAL, HIGH, MEDIUM, LOW): ").strip().upper()
-                    if new_priority in Priority.__members__:
-                        task['priority'] = Priority[new_priority].value
-                        save_data(load_data(PROJECTS_FILE), PROJECTS_FILE)
-                        console.print("Task priority updated successfully.", style="bold green")
-                    else:
-                        console.print("Invalid priority.", style="bold red")
+                    change_task_priority(user)
                 elif choice == '4':
-                    new_status = console.input("Enter new task status (BACKLOG, TODO, DOING, DONE, ARCHIVED): ").strip().upper()
-                    if new_status in Status.__members__:
-                        task['status'] = Status[new_status].value
-                        project_name = console.input("Enter the project title to view tasks by status: ")
-                        project_id = get_project_id_by_name(project_name)
-                        edit_task(project_id,task_id,new_status)
-                        save_data(load_data(PROJECTS_FILE), PROJECTS_FILE)
-                    else:
-                        console.print("Invalid status.", style="bold red")
+                    project_title = console.input("Enter the project title: ")
+                    task_id = console.input("Enter the task ID: ")
+                    new_status = console.input("Enter the new status (BACKLOG , TODO , DOING , DONE , ARCHIVED): ").strip().upper()
+                    project_id = get_project_id_by_name(project_title)
+                    edit_task(project['id'], task_id, new_status)
                 elif choice == '5':
                     add_comment_to_task(user)
                 elif choice == '6':
@@ -445,7 +574,7 @@ def view_task_details(user, project, task_id):
                 else:
                     console.print("Invalid choice. Please try again.", style="bold red")
             else :
-                console.print("You are not the leader of this project.", style="bold red")
+                console.print("You are not the leader of this project or not assigned to this task.", style="bold red")
             return
 
 def view_tasks_by_status(user):
@@ -521,8 +650,8 @@ def delete_expired_projects():
 def main():
     delete_expired_projects()  # Delete expired projects at the start
     while True:
-        console.print("\nWelcome to the Project Management System", style="bold blue")
-        console.print("1. Create a new account", style="bold")
+        console.print("\n𝙒𝙚𝙡𝙘𝙤𝙢𝙚 𝙩𝙤 𝙩𝙝𝙚 𝙋𝙧𝙤𝙟𝙚𝙘𝙩 𝙈𝙖𝙣𝙖𝙜𝙚𝙢𝙚𝙣𝙩 𝙎𝙮𝙨𝙩𝙚𝙢", style="bold blue")
+        console.print("\n1. Create a new account", style="bold")
         console.print("2. Log in to your account", style="bold")
         console.print("3. Exit", style="bold")
         choice = console.input("Please choose an option (1, 2, or 3): ").strip()
@@ -548,5 +677,26 @@ def main():
         else:
             console.print("Invalid choice. Please choose 1, 2, or 3.", style="bold red")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    system("cls")
+    print(Fore.MAGENTA+ 
+          
+          
+
+"""
+
+
+  _____         _ _         __  __ _          
+ |_   __ __ ___| | | ___   |  \/  (_)_______  
+   | || '__/ _ | | |/ _ \  | |\/| | |_  / _ \ 
+   | || | |  __| | | (_) | | |  | | |/ |  __/ 
+   |_||_|  \___|_|_|\___/  |_|  |_|_/___\___| 
+                                              
+            
+                                                           
+     𝘾𝙤𝙙𝙚𝙙 𝘽𝙮 @𝙁𝙖𝙩𝙚𝙢𝙚𝙃𝙖𝙨𝙖𝙣𝙞 & @𝙁𝙖𝙧𝙝𝙤𝙤𝙙𝙂𝙃
+                                                          
+                                                          
+"""
+    + Fore.LIGHTMAGENTA_EX)
     main()

@@ -48,7 +48,6 @@ def purge_data():
     response = input("Are you sure you want to delete all data? (yes/no): ")
     if response.lower() == 'yes':
         if os.path.exists(ADMIN_FILE):
-            os.remove(ADMIN_FILE)
             os.remove(DATA_FILE)
             os.remove(PROJECTS_FILE)
             

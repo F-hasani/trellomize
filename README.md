@@ -61,5 +61,5 @@ This project is licensed under the MIT License. For more details, see the [LICEN
 
 ## Authors
 
-- [FatemeHasani](https://github.com/FatemeHasani)
+- [FatemeHasani](https://github.com/F-hasani)
 - [FarhoodGH](https://github.com/FarhoodGH)

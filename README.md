@@ -54,6 +54,26 @@ After running the application, the main menu will be displayed, which includes o
 ## Contributing
 
 If you would like to contribute to this project, please fork the repository, make your changes, and submit a pull request.
+# Admin Management System
+
+This project is a simple command-line tool for managing admin accounts and purging data in a system. It is written in Python and uses JSON files to store data.
+
+## Features
+
+- Create admin accounts with base64 encoded passwords.
+- Purge all data from the system with a confirmation prompt.
+
+## Requirements
+
+- Python 3.x
+
+## Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/yourusername/admin-management-system.git
+   cd admin-management-system
 
 ## License
 
